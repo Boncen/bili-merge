@@ -1,4 +1,9 @@
-# How to use
+
+# 安装
+```
+go install github.com/boncen/bili-merge@latest
+```
+# 说明
 bili-merge 通过ffmpeg对从bilibili缓存的文件进行批量合并成mp4. 
 
 从bilibili缓存的目录结构如下：
