@@ -23,26 +23,47 @@ type Entry struct {
 	TypeTag   string   `json:"type_tag"`
 }
 
+var version string = "0.1.2"
+
 func main() {
-	fmt.Println(os.Args)
+
+	if len(os.Args) > 1 && (strings.EqualFold(os.Args[1], "--help") || strings.EqualFold(os.Args[1], "-h")) {
+		printHelp()
+		os.Exit(0)
+	}
+
 	var targetDirs []string = []string{}
 	if len(os.Args) < 2 {
-		targetDirs = append(targetDirs, ".")
+		// 获取当前目录下所有目录作为参数
+		subCurDirs, err := getAllSubDir(".")
+		if err != nil {
+			fmt.Printf("error: %v", err)
+			os.Exit(1)
+		}
+		targetDirs = append(targetDirs, subCurDirs...)
 	} else {
 		targetDirs = append(targetDirs, os.Args[1:]...)
 	}
 
 	root := targetDirs[0] // 保存位置
-
-	for _, dir := range targetDirs {
+	for _, dir0 := range targetDirs {
+		dir := strings.ReplaceAll((dir0), "\n", "")
 		subDirs, err := getAllSubDir(dir)
 		if err != nil {
-			panic(err)
+			if os.IsNotExist(err) {
+				fmt.Println(dir, "无效的路径")
+				os.Exit(0)
+			} else {
+				panic(err)
+			}
 		}
-		for _, sd := range subDirs {
-			subDir := strings.ReplaceAll(sd, "\n", "")
+		for k, dir1 := range subDirs {
+			subDir := strings.ReplaceAll(dir1, "\n", "")
 			entryPath := path.Join(subDir, "entry.json")
-			fmt.Println(entryPath)
+			if !isFileExist(entryPath) {
+				//fmt.Printf("%v 不存在entry.json,跳过\n", dir1)
+				continue
+			}
 			entry, err := getJsonFileContent[Entry](entryPath)
 			savePath := path.Join(path.Dir(root), formatDirectoryName(entry.Title))
 			// 判断是否存在已生成目录
@@ -60,7 +81,8 @@ func main() {
 					panic(err)
 				}
 				// 执行合成输出
-				if err := merge(subVPath, path.Join(savePath, formatDirectoryName(entry.Pagedata.Part))); err != nil {
+				partFileName := fmt.Sprintf("P%v-%v", entry.Pagedata.Page, entry.Pagedata.Part)
+				if err := merge(subVPath, path.Join(savePath, formatDirectoryName(partFileName))); err != nil {
 					switch err.(type) {
 					case *exec.ExitError:
 						// 存在的跳过
@@ -69,9 +91,19 @@ func main() {
 						panic(err)
 					}
 				}
+				fmt.Printf("\r(%v/%v): %v", k+1, len(subDirs), entry.Title)
 			}
 		}
+		fmt.Println("")
 	}
+}
+
+func printHelp() {
+	fmt.Printf("bili-merge v%v \n", version)
+	fmt.Println("用法: bili-merge [参数...]")
+	fmt.Println("参数:")
+	fmt.Println("  参数...             传递目录路径，可以传递多个")
+	fmt.Println("  -h,--help          显示此帮助信息并退出")
 }
 
 func isFileExist(path string) bool {
@@ -87,7 +119,7 @@ func isFileExist(path string) bool {
 
 // 防止目录名带有特殊符号
 func formatDirectoryName(name string) string {
-	tmp := "'" + strings.TrimSpace(name) + "'"
+	tmp := "'" + strings.ReplaceAll(name, " ", "") + "'"
 	//tmp = strings.Replace(tmp, "\\n", "", -1)
 	return tmp
 }
@@ -111,7 +143,6 @@ func makesureDirExist(dir string) error {
 	if err != nil {
 		if os.IsNotExist(err) {
 			tmp := fmt.Sprintf("mkdir -p %v", dir)
-			fmt.Println(tmp)
 			cmd := exec.Command("sh", "-c", tmp)
 			err := cmd.Run()
 			if err != nil {
@@ -158,9 +189,10 @@ func getAllSubDir(dir string) ([]string, error) {
 	// 判断文件夹是否存在
 	_, err := os.Stat(dir)
 	if err != nil {
-		if err == os.ErrNotExist {
+		if os.IsNotExist(err) {
 			return nil, err
 		}
+		return nil, nil
 	}
 	cmd := exec.Command("sh", "-c", fmt.Sprintf("find %v -path '*/.*' -prune -o -type d -mindepth 1 -maxdepth 1 -print0 | xargs -0 echo", dir))
 	var stdout, stderr bytes.Buffer
